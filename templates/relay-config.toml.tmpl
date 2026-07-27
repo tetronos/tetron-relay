@@ -1,0 +1,22 @@
+# Rendered by tetron-relay -- do not hand-edit, re-run `tetron-relay up`/`allow`
+# instead (a hand edit is overwritten on the next render). Schema verified
+# against iroh-relay's own src/main.rs (`struct Config`/`struct TlsConfig`)
+# at iroh 1.0.3 -- upstream's own docs paraphrase some field names slightly
+# wrong (e.g. describe TLS domains as `domains`; the real field is
+# `hostname`), so this was checked against source, not docs.
+
+enable_quic_addr_discovery = true
+
+# Metrics off by default: `enable_metrics = true` binds :9090 on every
+# interface by default, which is more public surface than a relay you're
+# standing up specifically to keep traffic private should default to.
+# Flip this on (and set metrics_bind_addr to a loopback/VPN-only address)
+# if you want it.
+enable_metrics = false
+
+__ACCESS_BLOCK__
+
+[tls]
+cert_mode = "__CERT_MODE__"
+cert_dir = "__CERT_DIR__"
+__TLS_EXTRA__

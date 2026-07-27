@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# tetron-relay: bring up a self-hosted iroh relay for a tetron fleet.
+# See README.md for prerequisites and a full walkthrough.
+
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../lib/common.sh
+source "$ROOT/lib/common.sh"
+# shellcheck source=../lib/relay.sh
+source "$ROOT/lib/relay.sh"
+
+require_cmd curl ssh scp
+
+usage() {
+	cat <<'EOF'
+usage:
+  tetron-relay up --host <name> --domain <fqdn> --contact <email> [--allow <endpoint-id> ...] [--dev]
+  tetron-relay allow --host <name> --endpoint-id <id>
+  tetron-relay status --host <name>
+  tetron-relay down --host <name> [--purge]
+
+hosts.conf (copy hosts.conf.example) declares each <name> as "local" or an
+SSH target. --dev skips DNS preflight and Let's Encrypt, using a
+self-signed cert instead -- for testing against a lab VM, not production.
+EOF
+}
+
+[[ $# -ge 1 ]] || { usage; exit 1; }
+cmd="$1"
+shift
+
+load_hosts_conf "$ROOT/hosts.conf"
+
+host=""
+domain=""
+contact=""
+endpoint_id=""
+purge="false"
+dev="false"
+declare -a allow_ids=()
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--host) host="$2"; shift 2 ;;
+	--domain) domain="$2"; shift 2 ;;
+	--contact) contact="$2"; shift 2 ;;
+	--endpoint-id) endpoint_id="$2"; shift 2 ;;
+	--allow) allow_ids+=("$2"); shift 2 ;;
+	--purge) purge="true"; shift ;;
+	--dev) dev="true"; shift ;;
+	*) fatal "unrecognized argument: $1" ;;
+	esac
+done
+
+[[ -n "$host" ]] || fatal "--host is required"
+
+case "$cmd" in
+up)
+	[[ -n "$domain" ]] || fatal "up: --domain is required"
+	if [[ "$dev" != "true" ]]; then
+		[[ -n "$contact" ]] || fatal "up: --contact is required (LetsEncrypt needs a contact email); pass --dev to skip this for lab testing"
+	fi
+	allow_ids_csv="$(IFS=,; echo "${allow_ids[*]:-}")"
+	relay_up "$host" "$domain" "$contact" "$allow_ids_csv" "$dev"
+	;;
+allow)
+	[[ -n "$endpoint_id" ]] || fatal "allow: --endpoint-id is required"
+	relay_allow "$host" "$endpoint_id"
+	;;
+status)
+	relay_status "$host"
+	;;
+down)
+	relay_down "$host" "$purge"
+	;;
+*)
+	usage
+	fatal "unknown command: $cmd"
+	;;
+esac

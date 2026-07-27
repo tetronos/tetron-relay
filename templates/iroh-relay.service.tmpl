@@ -1,0 +1,26 @@
+[Unit]
+Description=Self-hosted iroh relay (tetron-relay bringup)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iroh-relay
+Group=iroh-relay
+ExecStart=/usr/local/bin/iroh-relay --config-path /etc/iroh-relay/config.toml
+Restart=on-failure
+RestartSec=2
+
+# Binds :80/:443 as a non-root user instead of running the whole process
+# as root -- the only privilege this service actually needs.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+# Auto-creates /var/lib/iroh-relay owned by iroh-relay:iroh-relay -- used
+# as cert_dir (LetsEncrypt's ACME cache, or the Manual-mode cert/key files
+# under --dev) so the service user can write there without a manual chown.
+StateDirectory=iroh-relay
+
+[Install]
+WantedBy=multi-user.target

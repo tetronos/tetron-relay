@@ -1,0 +1,22 @@
+# tetron-relay host inventory.
+#
+# Copy this file to hosts.conf (gitignored -- your real infra is your own
+# business) and edit. One host per line:
+#
+#   <name>  <target>
+#
+# <name> is a label used only within this tool (log lines, --host
+# arguments) -- it does not need to match the real hostname.
+#
+# <target> is either the literal word "local" (run commands directly on
+# this machine) or an SSH target (user@host, anything `ssh` itself accepts,
+# including a Host alias from your own ~/.ssh/config). Unlike
+# tetron-testsuite, every entry here is expected to be a real, persistent
+# server you already provisioned -- not a disposable VM this tool creates.
+# The SSH user needs passwordless sudo (or run as root directly) since
+# bringup writes to /usr/local/bin, /etc/iroh-relay, and installs a
+# systemd unit.
+#
+# Lines starting with # are comments. Blank lines are ignored.
+
+#relay-1  ssh:user@relay.example.com
