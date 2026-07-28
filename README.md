@@ -36,8 +36,10 @@ cp hosts.conf.example hosts.conf   # edit for your server(s)
 # -> prints: tetron config set relay https://relay.example.com --replace
 # Run that on each fleet node, then `sudo tetron restart`.
 
-# Add another node to an already-provisioned relay later:
-./bin/tetron-relay allow --host relay-1 --endpoint-id <endpoint-id-3>
+# Manage the allowlist (add, list, remove):
+./bin/tetron-relay allow add --host relay-1 --endpoint-id <endpoint-id-3>
+./bin/tetron-relay allow list --host relay-1
+./bin/tetron-relay allow remove --host relay-1 --endpoint-id <endpoint-id-3>
 
 ./bin/tetron-relay status --host relay-1
 ./bin/tetron-relay down --host relay-1              # stop, keep config/binary
@@ -45,6 +47,12 @@ cp hosts.conf.example hosts.conf   # edit for your server(s)
 ```
 
 Get a node's EndpointId from `tetron status --json`'s `endpoint_id` field on that node.
+
+## Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `RELAY_IROH_VERSION` | auto (from `../tetron/Cargo.lock`, or `1.0.3`) | iroh-relay release version to install. Only needed if you cloned tetron-relay without the full tetron repo, or need a specific version different from what tetron was compiled against. |
 
 ## Important: self-signed (`--dev`) certs do not work with a real tetron client
 

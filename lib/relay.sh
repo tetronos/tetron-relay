@@ -67,6 +67,11 @@ relay_install_binary() {
 		sudo install -m 0755 \"\$bin\" '$RELAY_BIN_PATH'
 		rm -rf \"\$tmpdir\"
 	" || fatal "relay_install_binary: failed on '$host' (bad version/arch, or no release for v${version}?)"
+
+	# Verify the binary was actually placed. If the tarball's internal
+	# structure changes between iroh versions (different layout, renamed
+	# binary), the find+install above could silently do nothing.
+	run_on "$host" "test -x '$RELAY_BIN_PATH'" || fatal "relay_install_binary: '$RELAY_BIN_PATH' not found or not executable on '$host' after install"
 }
 
 # relay_create_user <host>
@@ -205,6 +210,20 @@ relay_deploy_unit() {
 		|| fatal "relay_deploy_unit: could not install systemd unit on '$host'"
 }
 
+# relay_public_ip <host>
+# Tries several public-IP detection services in order until one succeeds.
+# Returns the detected IP (empty string if all fail).
+relay_public_ip() {
+	local host="$1"
+	local ip services
+	services="https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com https://checkip.amazonaws.com"
+	for url in $services; do
+		ip="$(run_on "$host" "curl -fsS --max-time 5 '$url'" 2>/dev/null)" || continue
+		[[ -n "$ip" ]] && { echo "$ip"; return 0; }
+	done
+	return 1
+}
+
 # relay_wait_https <host> <subject> [<insecure>=false] [<timeout_s>=60]
 # Polls the relay's own HTTPS port until it answers. Never declare
 # bringup successful without actually observing the service respond --
@@ -233,9 +252,9 @@ relay_up() {
 
 	if [[ "$dev" != "true" ]]; then
 		local pub_ip resolved
-		pub_ip="$(run_on "$host" "curl -fsS --max-time 5 https://api.ipify.org" 2>/dev/null)" || log_warn "could not determine '$host''s own public IP (no internet, or blocked outbound) -- skipping DNS preflight"
+		pub_ip="$(relay_public_ip "$host")" || log_warn "could not determine '$host''s own public IP (no internet, or blocked outbound) -- skipping DNS preflight"
 		if [[ -n "$pub_ip" ]]; then
-			resolved="$(getent hosts "$domain" 2>/dev/null | awk '{print $1; exit}')"
+			resolved="$(run_on "$host" "getent hosts '$domain' 2>/dev/null | awk '{print \$1; exit}'")"
 			if [[ -n "$resolved" && "$resolved" != "$pub_ip" ]]; then
 				log_warn "DNS preflight: '$domain' resolves to $resolved but '$host' reports its own public IP as $pub_ip -- Let's Encrypt's HTTP-01 challenge will fail if these don't actually match. Continuing anyway (not fatal: NAT/load-balancer setups can legitimately differ)."
 			fi
@@ -245,6 +264,14 @@ relay_up() {
 
 	relay_install_binary "$host" "$version"
 	relay_create_user "$host"
+
+	# Preflight: --dev needs openssl on the target for self-signed cert
+	# generation. Check before any work that depends on it so the error
+	# message is clear, not a confusing "openssl failed" deep in the
+	# cert-generation function.
+	if [[ "$dev" == "true" ]]; then
+		run_on "$host" "command -v openssl" || fatal "relay_up: --dev requires openssl on '$host' (needed to generate a self-signed certificate)"
+	fi
 
 	local subject cert_mode
 	if [[ "$dev" == "true" ]]; then
@@ -327,6 +354,59 @@ relay_allow() {
 
 	run_on "$host" "sudo systemctl restart iroh-relay" || fatal "relay_allow: restart failed on '$host'"
 	log_pass "relay_allow: '$endpoint_id' added on '$host', service restarted"
+}
+
+# relay_allow_list <host>
+# Prints the current allowlist, one EndpointId per line.
+relay_allow_list() {
+	local host="$1"
+	local list
+	list="$(relay_current_allowlist "$host")"
+	if [[ -z "$list" ]]; then
+		log_info "allowlist on '$host' is empty (access is open to everyone)"
+	else
+		echo "$list"
+	fi
+}
+
+# relay_allow_remove <host> <endpoint_id>
+# Removes an EndpointId from the allowlist, re-renders the config, and
+# restarts the relay service.
+relay_allow_remove() {
+	local host="$1" endpoint_id="$2"
+	local state
+	state="$(relay_read_state "$host")"
+	local CERT_MODE SUBJECT CONTACT
+	eval "$state"
+	local cert_mode="$CERT_MODE" subject="$SUBJECT" contact="$CONTACT"
+
+	local existing
+	existing="$(relay_current_allowlist "$host")"
+	if ! echo "$existing" | grep -qxF "$endpoint_id"; then
+		log_warn "relay_allow_remove: '$endpoint_id' is not in the allowlist on '$host'"
+		return 0
+	fi
+
+	# Remove the matching line and any resulting blank line.
+	local updated
+	updated="$(echo "$existing" | grep -vxF "$endpoint_id" | sed '/^$/d')"
+	if [[ -z "$updated" ]]; then
+		# Last entry removed: remove the allowlist file entirely, matching
+		# relay_up's behavior when no --allow is passed (open access).
+		run_on "$host" "sudo rm -f '$RELAY_ALLOWLIST_FILE'"
+	else
+		run_on "$host" "printf '%s\n' \"$updated\" | sudo tee '$RELAY_ALLOWLIST_FILE' >/dev/null && sudo chown root:iroh-relay '$RELAY_ALLOWLIST_FILE' && sudo chmod 0640 '$RELAY_ALLOWLIST_FILE'"
+	fi
+
+	local ids_csv
+	ids_csv="$(echo "$updated" | paste -sd,)"
+	local cfg
+	cfg="$(relay_render_config "$cert_mode" "$subject" "$contact" "$ids_csv")"
+	relay_deploy_config "$host" "$cfg"
+	rm -f "$cfg"
+
+	run_on "$host" "sudo systemctl restart iroh-relay" || fatal "relay_allow_remove: restart failed on '$host'"
+	log_pass "relay_allow_remove: '$endpoint_id' removed on '$host', service restarted"
 }
 
 # relay_status <host>

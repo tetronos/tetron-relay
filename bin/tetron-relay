@@ -15,13 +15,24 @@ usage() {
 	cat <<'EOF'
 usage:
   tetron-relay up --host <name> --domain <fqdn> --contact <email> [--allow <endpoint-id> ...] [--dev]
-  tetron-relay allow --host <name> --endpoint-id <id>
+  tetron-relay allow <list|add|remove> --host <name> [--endpoint-id <id>]
   tetron-relay status --host <name>
   tetron-relay down --host <name> [--purge]
 
 hosts.conf (copy hosts.conf.example) declares each <name> as "local" or an
 SSH target. --dev skips DNS preflight and Let's Encrypt, using a
 self-signed cert instead -- for testing against a lab VM, not production.
+
+Subcommands:
+  allow list                    Show all allowlisted EndpointIds
+  allow add --endpoint-id <id>  Add an EndpointId to the allowlist
+  allow remove --endpoint-id <id>  Remove an EndpointId from the allowlist
+
+Environment:
+  RELAY_IROH_VERSION  iroh-relay release version to install (default: auto-
+                      detected from a sibling ../tetron/Cargo.lock, or 1.0.3
+                      if that is absent). Set this if you cloned tetron-relay
+                      without the full tetron repo, or need a specific version.
 EOF
 }
 
@@ -29,12 +40,19 @@ EOF
 cmd="$1"
 shift
 
+# Consume optional subcommand for `allow list|add|remove`.
+if [[ "$cmd" == "allow" && $# -ge 1 && "$1" =~ ^(list|add|remove)$ ]]; then
+	allow_subcmd="$1"
+	shift
+fi
+
 load_hosts_conf "$ROOT/hosts.conf"
 
 host=""
 domain=""
 contact=""
 endpoint_id=""
+allow_subcmd="${allow_subcmd:-}"
 purge="false"
 dev="false"
 declare -a allow_ids=()
@@ -60,12 +78,29 @@ up)
 	if [[ "$dev" != "true" ]]; then
 		[[ -n "$contact" ]] || fatal "up: --contact is required (LetsEncrypt needs a contact email); pass --dev to skip this for lab testing"
 	fi
+	# --dev generates a self-signed cert via openssl on the target (or
+	# locally if the target is "local"). Check early on the controller so
+	# the error is immediate, not delayed until after binary download.
+	if [[ "$dev" == "true" ]]; then
+		require_cmd openssl
+	fi
 	allow_ids_csv="$(IFS=,; echo "${allow_ids[*]:-}")"
 	relay_up "$host" "$domain" "$contact" "$allow_ids_csv" "$dev"
 	;;
 allow)
-	[[ -n "$endpoint_id" ]] || fatal "allow: --endpoint-id is required"
-	relay_allow "$host" "$endpoint_id"
+	case "${allow_subcmd:-add}" in
+	list)
+		relay_allow_list "$host"
+		;;
+	remove)
+		[[ -n "$endpoint_id" ]] || fatal "allow remove: --endpoint-id is required"
+		relay_allow_remove "$host" "$endpoint_id"
+		;;
+	add|*)
+		[[ -n "$endpoint_id" ]] || fatal "allow add: --endpoint-id is required"
+		relay_allow "$host" "$endpoint_id"
+		;;
+	esac
 	;;
 status)
 	relay_status "$host"
