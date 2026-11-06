@@ -103,9 +103,19 @@ relay_create_user() {
 # to probe.
 relay_generate_dev_cert() {
 	local host="$1" subject="$2"
+	# subjectAltName's IP: entry needs a literal, parseable IP address --
+	# openssl's a2i_GENERAL_NAME rejects anything else outright ("bad ip
+	# address"), found live 2026-08-12 passing a hostname (e.g.
+	# "test-relay.local") as --domain, the normal case for --dev testing.
+	# Only add IP:$subject when $subject actually looks like an IPv4/IPv6
+	# literal; otherwise DNS:$subject alone is correct.
+	local san="DNS:$subject"
+	if [[ "$subject" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$subject" =~ : ]]; then
+		san="DNS:$subject,IP:$subject"
+	fi
 	run_on "$host" "sudo openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
 		-days 365 -nodes -subj '/CN=$subject' \
-		-addext 'subjectAltName=DNS:$subject,IP:$subject' \
+		-addext 'subjectAltName=$san' \
 		-addext 'basicConstraints=critical,CA:FALSE' \
 		-addext 'keyUsage=critical,digitalSignature,keyEncipherment' \
 		-addext 'extendedKeyUsage=serverAuth' \
