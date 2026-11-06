@@ -1,6 +1,6 @@
 # tetron-relay
 
-A bringup tool that turns a plain Linux server into a running, self-hosted [iroh relay](https://github.com/n0-computer/iroh/tree/main/iroh-relay) for a [tetron](https://github.com/ErikAllanKincaid/tetron) fleet, and hands back the exact `tetron config set relay <url>` command to point your nodes at it.
+A bringup tool that turns a plain Linux server into a running, self-hosted [iroh relay](https://github.com/n0-computer/iroh/tree/main/iroh-relay) for a [tetron](https://github.com/tetronos/tetron) fleet, and hands back the exact `tetron config set relay <url>` command to point your nodes at it.
 
 **Optional and separate from tetron on purpose**, same relationship tetron-webui/tetron-systray/tetron-testsuite have to core: a genuinely separate, opt-in addon. Nothing about tetron's own behavior changes whether this exists or not. tetron already supports pointing at any relay you like (`tetron config set relay https://...`) -- this tool exists purely to stand one up, not to change tetron itself.
 
